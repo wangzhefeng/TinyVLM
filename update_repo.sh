@@ -1,7 +1,7 @@
 # !/bin/bash
 
 # push TinyVLM
-epch "--------------------------"
+echo "--------------------------"
 echo "update TinyVLM codes..."
 git add .
 git commit -m "update"
@@ -10,7 +10,7 @@ git push
 
 
 # push utils
-epch "--------------------------"
+echo "--------------------------"
 echo "update utils codes..."
 cd utils
 git add .
