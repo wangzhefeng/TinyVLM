@@ -63,9 +63,19 @@ def parse_args():
 def main():
     # args
     args = parse_args()
+    logger.info(f"args: {args}")
 
     # device
     device = device_setting(verbose=True)
+
+    # model load
+    source = args.checkpoint if args.checkpoint else args.hf_model
+    logger.info(f"Loading model weights from: {source}")
+    model = None
+    model.eval()
+
+    # tokenizer
+    tokenizer = None
 
 if __name__ == "__main__":
     main()

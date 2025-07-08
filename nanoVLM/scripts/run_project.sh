@@ -18,7 +18,6 @@ python train.py
 # generate
 python generate.py
 
-
 # evaluate
 # Install lmms-eval (has to be from source)
 uv pip install git+https://github.com/EvolvingLMMs-Lab/lmms-eval.git
