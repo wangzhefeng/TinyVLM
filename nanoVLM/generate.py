@@ -27,7 +27,7 @@ warnings.filterwarnings("ignore")
 import torch
 from PIL import Image
 
-from nanoVLM.util import seed_torch
+from nanoVLM.models.util import seed_torch
 seed_torch(0)
 from utils.device import device_setting
 
