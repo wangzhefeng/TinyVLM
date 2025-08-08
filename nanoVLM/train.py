@@ -25,16 +25,16 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import torch
+
 from nanoVLM.models.util import (
     is_master, is_dist, 
     init_dist, destory_dist,
     seed_torch, seed_worker
 )
-
 # set torch seed
 seed_torch()
-
 from nanoVLM.models.config import VLMConfig, TrainConfig
+
 
 # Otherwise, the tokenizer will throw a warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -61,6 +61,7 @@ def parse_args():
 
 def train(train_cfg, vlm_cfg):
     pass
+
 
 
 
