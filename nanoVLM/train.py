@@ -26,7 +26,7 @@ warnings.filterwarnings("ignore")
 
 import torch
 
-from nanoVLM.models.util import (
+from nanoVLM.models.utils import (
     is_master, is_dist, 
     init_dist, destory_dist,
     seed_torch, seed_worker
