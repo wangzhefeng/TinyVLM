@@ -22,15 +22,26 @@ if ROOT not in sys.path:
 import warnings
 warnings.filterwarnings("ignore")
 
+import torch
 from torch.utils.data import DataLoader
-from datasets import load_dataset, concatenate_datasets
+from datasets import (
+    load_dataset, 
+    concatenate_datasets,
+    get_dataset_config_names,
+)
+from torch.utils.data import DistributedSampler
 
 from nanoVLM.data_provider.processors import (
     get_image_processor, 
     get_tokenizer,
 )
+from nanoVLM.models.utils import (
+    is_master, is_dist, get_world_size, get_rank, seed_worker
+)
 from nanoVLM.data_provider.collators import VQACollator
 from nanoVLM.data_provider.dataset import VQADataset
+from nanoVLM.data_provider.advanced_datasets import ConstantLengthDataset
+from utils.log_util import logger
 
 # global variable
 LOGGING_LABEL = Path(__file__).name[:-3]
@@ -38,21 +49,42 @@ LOGGING_LABEL = Path(__file__).name[:-3]
 
 def get_dataloaders(train_cfg, vlm_cfg):
     # Create datasets
-    image_processor = get_image_processor(max_img_size=vlm_cfg.vit_img_size)
+    image_processor = get_image_processor(
+        max_img_size=vlm_cfg.max_img_size, 
+        splitted_image_size=vlm_cfg.vit_img_size
+    )
     # tokenizer
     tokenizer = get_tokenizer(
         name=vlm_cfg.lm_tokenizer, 
         extra_special_tokens=vlm_cfg.vlm_extra_tokens, 
         chat_template=vlm_cfg.lm_chat_template
     )
+    
     # Load and combine all training datasets
     combined_train_data = []
-    for dataset_name in train_cfg.train_dataset_name:
-        train_ds = load_dataset(path=train_cfg.train_dataset_path, name=dataset_name)
-        combined_train_data.append(train_ds["train"])
+    dataset_names_to_load = train_cfg.train_dataset_name
+    if "all" in dataset_names_to_load:
+        dataset_names_to_load = get_dataset_config_names(train_cfg.train_dataset_path)
+
+    for dataset_name in dataset_names_to_load:
+        try:
+            train_ds = load_dataset(path=train_cfg.train_dataset_path, name=dataset_name)
+            train_ds["train"][0]  # Check if the dataset is loaded correctly
+            combined_train_data.append(train_ds["train"])
+        except Exception as e:
+            if is_master():
+                logger.info(f"Warning: Failed to load dataset config '{dataset_name}' from '{train_cfg.train_dataset_path}'. Error: {e}")
+            continue
+    
+    if not combined_train_data:
+        raise ValueError("No valid datasets were loaded. Please check your dataset path and configurations.")
+    
     train_ds = concatenate_datasets(combined_train_data)
     # Shuffle the training dataset, so train and valid get equal contributions from all concatenated datasets
     train_ds = train_ds.shuffle(seed=0)
+    
+    if is_dist():
+        train_ds = train_ds.shard(num_shards=get_world_size(), index=get_rank())
     
     # Apply cutoff if specified
     if train_cfg.data_cutoff_idx is None:
@@ -69,6 +101,15 @@ def get_dataloaders(train_cfg, vlm_cfg):
         image_processor,
         vlm_cfg.mp_image_token_length,
     )
+    train_dataset = ConstantLengthDataset(
+        train_dataset,
+        infinite=False,
+        seq_length=vlm_cfg.lm_max_length, 
+        num_of_sequences=train_cfg.batch_size*64, 
+        queue_size=train_cfg.batch_size*64*2,
+        max_images_per_example=train_cfg.max_images_per_example, 
+        max_images_per_knapsack=train_cfg.max_images_per_knapsack,
+    )
     val_dataset = VQADataset(
         train_ds.select(range(train_size, total_samples)),
         tokenizer,
@@ -79,24 +120,39 @@ def get_dataloaders(train_cfg, vlm_cfg):
     # Create collators
     vqa_collator = VQACollator(tokenizer, vlm_cfg.lm_max_length)
     
+    # TODO
+    g = torch.Generator()
+    g.manual_seed(0)
+    
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
-        batch_size=train_cfg.batch_size,
-        shuffle=True,
+        batch_size=train_cfg.batch_size,  # =per device BS in DDP
         collate_fn=vqa_collator,
-        num_workers=2,
+        num_workers=8,
         pin_memory=True,
         drop_last=True,
+        worker_init_fn=seed_worker,
+        # shuffle=True,
+        generator=g,
+    )
+    val_sampler = DistributedSampler(
+        val_dataset,
+        rank=get_rank(),
+        num_replicas=get_world_size(),
+        shuffle=False,  # Usually False for validation
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=train_cfg.batch_size,
-        shuffle=False,
+        sampler=val_sampler,
         collate_fn=vqa_collator,
-        num_workers=2,
+        num_workers=8,
         pin_memory=True,
         drop_last=True,
+        worker_init_fn=seed_worker,
+        # shuffle=False,
+        generator=g,
     )
 
     return train_loader, val_loader

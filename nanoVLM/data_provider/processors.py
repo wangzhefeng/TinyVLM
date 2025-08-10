@@ -14,20 +14,21 @@
 __all__ = []
 
 # python libraries
-import os
 import sys
 from pathlib import Path
 ROOT = str(Path.cwd())
 if ROOT not in sys.path:
     sys.path.append(ROOT)
-from typing import List, Tuple
+from typing import List
 import warnings
 warnings.filterwarnings("ignore")
 
 from transformers import AutoTokenizer
 import torchvision.transforms as transforms
 
-from nanoVLM.data.custom_transforms import DynamicResize, SplitImage
+from nanoVLM.data_provider.custom_transforms import (
+    DynamicResize, SplitImage
+)
 
 # global variable
 LOGGING_LABEL = Path(__file__).name[:-3]

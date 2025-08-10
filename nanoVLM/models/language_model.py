@@ -466,7 +466,7 @@ class LanguageModel(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
         elif isinstance(module, RMSNorm):
             module.weight.data.fill_(1.0)
-    
+
     def forward(self, x: torch.Tensor, attention_mask: torch.Tensor=None, kv_cache: List[Dict]=None, start_pos: int=0):
         """
         Performs a forward pass through the language model.
