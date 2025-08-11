@@ -25,9 +25,9 @@ warnings.filterwarnings("ignore")
 import torch
 from torch.utils.data import DataLoader
 from datasets import (
+    get_dataset_config_names,
     load_dataset, 
     concatenate_datasets,
-    get_dataset_config_names,
 )
 from torch.utils.data import DistributedSampler
 
@@ -49,23 +49,17 @@ LOGGING_LABEL = Path(__file__).name[:-3]
 
 def get_dataloaders(train_cfg, vlm_cfg):
     # Create datasets
-    image_processor = get_image_processor(
-        max_img_size=vlm_cfg.max_img_size, 
-        splitted_image_size=vlm_cfg.vit_img_size
-    )
+    image_processor = get_image_processor(max_img_size=vlm_cfg.max_img_size, splitted_image_size=vlm_cfg.vit_img_size)
     # tokenizer
-    tokenizer = get_tokenizer(
-        name=vlm_cfg.lm_tokenizer, 
-        extra_special_tokens=vlm_cfg.vlm_extra_tokens, 
-        chat_template=vlm_cfg.lm_chat_template
-    )
+    tokenizer = get_tokenizer(name=vlm_cfg.lm_tokenizer, extra_special_tokens=vlm_cfg.vlm_extra_tokens, chat_template=vlm_cfg.lm_chat_template)
     
     # Load and combine all training datasets
     combined_train_data = []
-    dataset_names_to_load = train_cfg.train_dataset_name
+    # data config
+    dataset_names_to_load = train_cfg.train_dataset_name  # ("all",)
     if "all" in dataset_names_to_load:
         dataset_names_to_load = get_dataset_config_names(train_cfg.train_dataset_path)
-
+    # data load
     for dataset_name in dataset_names_to_load:
         try:
             train_ds = load_dataset(path=train_cfg.train_dataset_path, name=dataset_name)
@@ -75,14 +69,14 @@ def get_dataloaders(train_cfg, vlm_cfg):
             if is_master():
                 logger.info(f"Warning: Failed to load dataset config '{dataset_name}' from '{train_cfg.train_dataset_path}'. Error: {e}")
             continue
-    
+    # data combine
     if not combined_train_data:
         raise ValueError("No valid datasets were loaded. Please check your dataset path and configurations.")
     
     train_ds = concatenate_datasets(combined_train_data)
     # Shuffle the training dataset, so train and valid get equal contributions from all concatenated datasets
     train_ds = train_ds.shuffle(seed=0)
-    
+    # Shard the dataset in DDP since we are using an iterable dataset instead of the distributed sampler
     if is_dist():
         train_ds = train_ds.shard(num_shards=get_world_size(), index=get_rank())
     
@@ -104,6 +98,7 @@ def get_dataloaders(train_cfg, vlm_cfg):
     train_dataset = ConstantLengthDataset(
         train_dataset,
         infinite=False,
+        max_sample_length=train_cfg.max_sample_length,
         seq_length=vlm_cfg.lm_max_length, 
         num_of_sequences=train_cfg.batch_size*64, 
         queue_size=train_cfg.batch_size*64*2,
@@ -120,7 +115,7 @@ def get_dataloaders(train_cfg, vlm_cfg):
     # Create collators
     vqa_collator = VQACollator(tokenizer, vlm_cfg.lm_max_length)
     
-    # TODO
+    # 设置生成随机数的种子
     g = torch.Generator()
     g.manual_seed(0)
     

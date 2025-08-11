@@ -47,7 +47,8 @@ class BaseDataset(Dataset):
         random_string_chat_template = self.tokenizer.apply_chat_template(
             [{"role": "assistant", "content": random_string_5_letters}], 
             tokenize=False, 
-            add_speical_tokens=False)
+            add_speical_tokens=False,
+        )
         random_string_location = random_string_chat_template.find(random_string_5_letters)
         # prefix len
         prefix_len = len(self.tokenizer.encode(random_string_chat_template[:random_string_location]))

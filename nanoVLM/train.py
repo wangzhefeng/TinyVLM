@@ -180,7 +180,7 @@ def main():
     vlm_cfg = config.VLMConfig()
     # model training configs
     train_cfg = config.TrainConfig()
-    
+    # update configs
     if args.lr_mp is not None:
         train_cfg.lr_mp = args.lr_mp
     if args.lr_backbones is not None:
