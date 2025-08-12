@@ -20,7 +20,9 @@ from pathlib import Path
 ROOT = str(Path.cwd())
 if ROOT not in sys.path:
     sys.path.append(ROOT)
+import time
 import argparse
+import contextlib
 from dataclasses import asdict
 import warnings
 warnings.filterwarnings("ignore")
@@ -34,7 +36,7 @@ from nanoVLM.models.utils import (
     init_dist, destory_dist,
     seed_torch, seed_worker,
     wrap_model,
-    get_run_name, get_world_size,
+    get_run_name, get_world_size, get_lr,
 )
 # set torch seed
 seed_torch()
@@ -42,6 +44,7 @@ seed_torch()
 from nanoVLM.data_provider.data_factory import get_dataloaders
 from nanoVLM.data_provider.processors import get_tokenizer
 from nanoVLM.models.vision_language_model import VisionLanguageModel
+from nanoVLM.data_provider.data_utils import synchronized_dataloader_step
 
 # Otherwise, the tokenizer will throw a warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -71,11 +74,18 @@ def parse_args():
 
 
 def train(train_cfg, vlm_cfg):
-    # data loader
+    # ------------------------------
+    # TODO data loader
+    # ------------------------------
     train_loader, val_loader = get_dataloaders(train_cfg, vlm_cfg)
-    # tokenizer
+    # ------------------------------
+    # TODO tokenizer
+    # ------------------------------
     tokenizer = get_tokenizer(vlm_cfg.lm_tokenizer, vlm_cfg.vlm_extra_tokens, vlm_cfg.lm_chat_template)
+    # ------------------------------
     # run name
+    # ------------------------------
+    # wandb run name
     run_name = get_run_name(train_cfg, vlm_cfg)
     total_dataset_size = len(train_loader.dataset)
     if train_cfg.log_wandb and is_master():
@@ -93,13 +103,16 @@ def train(train_cfg, vlm_cfg):
             },
             name=run_name,
         )
+    # ------------------------------
     # Initialize model
+    # ------------------------------
     if train_cfg.resume_from_vlm_checkpoint:
         model = VisionLanguageModel.from_pretrained(vlm_cfg.vlm_checkpoint_path)
     else:
         model = VisionLanguageModel(vlm_cfg, load_backbone=vlm_cfg.vlm_load_backbone_weights)
-    
+    # ------------------------------
     # Model training summary
+    # ------------------------------
     if is_master():
         logger.info(f"nanoVLM initialized with {sum(p.numel() for p in model.parameters()):,} parameters")
         
@@ -110,8 +123,9 @@ def train(train_cfg, vlm_cfg):
         logger.info(f"Validation summary{' (global)' if is_dist() else ''}: {len(val_loader.dataset)} samples, {int(len(val_loader)*get_world_size())} batches/epoch, batch size {int(train_cfg.batch_size*get_world_size()*train_cfg.gradient_accumulation_steps)}{', training on ' + str(get_world_size()) + ' GPUs' if is_dist() else ''}")
         if is_dist():
             logger.info(f"Validation summary per GPU: {len(val_loader)} batches/epoch, batch size {val_loader.batch_size}")
-
+    # ------------------------------
     # Define optimizer groups
+    # ------------------------------
     # Since we have pretrained vision and language backbones, 
     # but a newly initialized modality projection layer, 
     # it doesn't make sense to train them with the same learning rate
@@ -129,8 +143,9 @@ def train(train_cfg, vlm_cfg):
     # optimizer
     optimizer = torch.optim.AdamW(param_groups)
     all_params = [p for group in optimizer.param_groups for p in group["params"]]
-
+    # ------------------------------
     # device
+    # ------------------------------
     device = (
         torch.device("cuda") if torch.cuda.is_available()
         else torch.device("mps") if hasattr(torch.backends, "mps") and torch.backends.mps.is_available()
@@ -140,7 +155,9 @@ def train(train_cfg, vlm_cfg):
         torch.backends.mps.enable_fallback_to_cpu = True
         torch.mps.empty_cache()
     logger.info(f"Using device: {device}")
-
+    # ------------------------------
+    # model prepare
+    # ------------------------------
     # model to device
     model.to(device)
 
@@ -167,7 +184,91 @@ def train(train_cfg, vlm_cfg):
         "images_per_sample": [],
     }
     while global_step < train_cfg.max_training_steps:
-        pass
+        # epoch start
+        epoch += 1
+        epoch_start_time = time.time()
+
+        model.train()
+
+        total_train_loss = 0
+        total_tokens_processed = 0
+
+        optimizer.zero_grad()
+
+        # data load start
+        data_load_start = time.time()
+
+        for i, batch in enumerate(synchronized_dataloader_step(train_loader, is_dist())):
+            is_update_step = ((i + 1) % train_cfg.gradient_accumulation_steps == 0) or ((i + 1) == len(train_loader))
+            # ------------------------------
+            # data load
+            # ------------------------------
+            # batch start
+            batch_start_time = time.time()
+
+            # input data
+            input_ids = batch["input_ids"].to(device)
+            images = batch["images"]
+            labels = batch["labels"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+
+            # data load end
+            data_load_time = time.time() - data_load_start 
+            # ------------------------------
+            # Forward and Backward
+            # ------------------------------
+            # When using DDP with gradient accumulation,
+            # skip gradient synchronization on intermediate steps to save time.
+            # Gradients only need to be synced at the end of each accumulation cycle.
+            if (is_dist() and train_cfg.gradient_accumulation_steps > 1 and not is_update_step):
+                context = model.no_sync()
+            else:
+                context = contextlib.nullcontext()
+            
+            # forward and backward start
+            fw_bw_start = time.time()
+
+            # forward
+            autocast_context = torch.autocast(
+                device_type=device.type, 
+                dtype=torch.bfloat16 if device.type in ["cuda", "cpu"] else torch.float16
+            )
+            with autocast_context:
+                with context:
+                    _, loss = model(input_ids, images, attention_mask=attention_mask, targets=labels)
+            
+            # backward
+            if train_cfg.gradient_accumulation_steps > 1:
+                loss = loss / train_cfg.gradient_accumulation_steps
+            loss.backward()
+
+            # forward and backward end
+            fw_bw_time = time.time() - fw_bw_start
+            # ------------------------------
+            # Post process
+            # ------------------------------
+            post_process_start = time.time()
+            if is_update_step:
+                # gradient clipping
+                if train_cfg.max_grad_norm is not None:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(all_params, max_norm=train_cfg.max_grad_norm)
+                # adjust mp learning rate
+                adj_lr_mp = get_lr(global_step, train_cfg.lr_mp, train_cfg.max_training_steps)
+                optimizer.param_groups[0]["lr"] = adj_lr_mp
+                # adjust backbones learning rate
+                if train_cfg.lr_backbones > 0:
+                    adj_lr_backbones = get_lr(global_step, train_cfg.lr_backbones, train_cfg.max_training_steps)
+                    optimizer.param_groups[1]["lr"] = adj_lr_backbones
+                # update weights
+                optimizer.step()
+                # zero gradients
+                optimizer.zero_grad()
+            
+            # batch loss
+            batch_loss = loss.item()
+
+
+
 
 
 
