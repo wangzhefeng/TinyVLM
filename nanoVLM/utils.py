@@ -81,7 +81,9 @@ def dist_gather(o):
 
 
 def wrap_model(model):
-    return DDP(model, device_ids=[dist.get_rank()])
+    model = DDP(model, device_ids=[dist.get_rank()])
+
+    return model
 
 
 def get_run_name(train_cfg, vlm_cfg):

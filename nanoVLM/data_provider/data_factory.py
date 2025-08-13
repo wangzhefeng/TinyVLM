@@ -35,7 +35,7 @@ from nanoVLM.data_provider.processors import (
     get_image_processor, 
     get_tokenizer,
 )
-from nanoVLM.models.utils import (
+from nanoVLM.utils import (
     is_master, is_dist, get_world_size, get_rank, seed_worker
 )
 from nanoVLM.data_provider.collators import VQACollator

@@ -27,9 +27,15 @@ warnings.filterwarnings("ignore")
 import torch
 from PIL import Image
 
-from nanoVLM.models.utils import seed_torch
-seed_torch(0)
+# utils
+from nanoVLM.utils import seed_torch
 from utils.device import device_setting
+# set torch seed
+seed_torch(0)
+# dataset
+from nanoVLM.data_provider.processors import get_tokenizer, get_image_processor
+# model
+from nanoVLM.models.vision_language_model import VisionLanguageModel
 
 # global variable
 LOGGING_LABEL = Path(__file__).name[:-3]
@@ -71,11 +77,32 @@ def main():
     # model load
     source = args.checkpoint if args.checkpoint else args.hf_model
     logger.info(f"Loading model weights from: {source}")
-    model = None
+    model = VisionLanguageModel.from_pretrained(source).to(device)
     model.eval()
 
     # tokenizer
-    tokenizer = None
+    tokenizer = get_tokenizer(model.cfg.lm_tokenizer, model.cfg.vlm_extra_tokens)
+
+    # image processor
+    image_processor = get_image_processor(model.cfg.max_img_size, model.cfg.vit_img_size)
+    img = Image.open(args.image).convert("RGB")
+    processed_image, splitted_image_count = image_processor(img)
+    vit_patch_size = splitted_image_count[0] * splitted_image_count[1]
+
+    # prompt
+    messages = [{
+        "role": "user",
+        "content": tokenizer.image_token * model.cfg.mp_image_token_length * vit_patch_size + args.prompt
+    }]
+    encoded_prompt = tokenizer.apply_chat_template([messages], tokenize=True, add_generation_prompt=True)
+    tokens = torch.tensor(encoded_prompt).to(device)
+    img_t = processed_image.to(device)
+
+    logger.info(f"\nInput:\n{args.prompt}\n\nOutputs:")
+    for i in range(args.generations):
+        gen = model.generate(tokens, img_t, max_new_tokens=args.max_new_tokens)
+        out = tokenizer.batch_decode(gen, skip_special_tokens=True)[0]
+        logger.info(f"  >> Generation {i + 1}: {out}")
 
 if __name__ == "__main__":
     main()
