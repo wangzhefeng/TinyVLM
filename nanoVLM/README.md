@@ -95,5 +95,12 @@ $ python generate.py --image path/to/image.png --prompt "你的提示在这里"
 
 # 参考
 
-* [nanoVLM: The simplest repository to train your VLM in pure PyTorch](https://huggingface.co/blog/zh/nanovlm)
-* [huggingface/nanoVLM](https://github.com/huggingface/nanoVLM)
+* [视觉语言模型详解](https://huggingface.co/blog/zh/vlms)
+* [视觉语言模型 (更好、更快、更强)](https://huggingface.co/blog/zh/vlms-2025)
+* nanoVLM
+    - Blog: [nanoVLM: The simplest repository to train your VLM in pure PyTorch](https://huggingface.co/blog/zh/nanovlm)
+    - Github: [huggingface/nanoVLM](https://github.com/huggingface/nanoVLM)
+    - Data: [HuggingFaceM4/the_cauldron](https://huggingface.co/datasets/HuggingFaceM4/the_cauldron)
+    - Deom: [nanoVLM Image-to-Text Generator](https://huggingface.co/spaces/ariG23498/nanovlm)
+* Models
+    - [LlaVA: Visual Instruction Tuning](https://huggingface.co/papers/2304.08485)

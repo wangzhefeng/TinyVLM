@@ -28,7 +28,7 @@ import torch
 from PIL import Image
 
 # utils
-from nanoVLM.utils import seed_torch
+from nanoVLM.utils_vlm import seed_torch
 from utils.device import device_setting
 # set torch seed
 seed_torch(0)
@@ -74,17 +74,19 @@ def main():
     # device
     device = device_setting(verbose=True)
 
-    # model load
+    # model path
     source = args.checkpoint if args.checkpoint else args.hf_model
     logger.info(f"Loading model weights from: {source}")
+    
+    # model
     model = VisionLanguageModel.from_pretrained(source).to(device)
     model.eval()
 
     # tokenizer
-    tokenizer = get_tokenizer(model.cfg.lm_tokenizer, model.cfg.vlm_extra_tokens)
+    tokenizer = get_tokenizer(name=model.cfg.lm_tokenizer, extra_special_tokens=model.cfg.vlm_extra_tokens)
 
     # image processor
-    image_processor = get_image_processor(model.cfg.max_img_size, model.cfg.vit_img_size)
+    image_processor = get_image_processor(max_img_size=model.cfg.max_img_size, splitted_image_size=model.cfg.vit_img_size)
     img = Image.open(args.image).convert("RGB")
     processed_image, splitted_image_count = image_processor(img)
     vit_patch_size = splitted_image_count[0] * splitted_image_count[1]
@@ -102,7 +104,7 @@ def main():
     for i in range(args.generations):
         gen = model.generate(tokens, img_t, max_new_tokens=args.max_new_tokens)
         out = tokenizer.batch_decode(gen, skip_special_tokens=True)[0]
-        logger.info(f"  >> Generation {i + 1}: {out}")
+        logger.info(f"  >> Generation {i+1}: {out}")
 
 if __name__ == "__main__":
     main()

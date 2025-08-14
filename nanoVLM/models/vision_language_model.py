@@ -33,7 +33,7 @@ import torch.nn.functional as F
 from safetensors.torch import save_model, load_model
 
 from nanoVLM.data_provider.processors import get_tokenizer
-from nanoVLM.utils import top_k_top_p_filtering
+from nanoVLM.utils_vlm import top_k_top_p_filtering
 from nanoVLM.models.config import VLMConfig
 from nanoVLM.models.vision_transformer import ViT
 from nanoVLM.models.language_model import LanguageModel

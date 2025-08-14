@@ -34,7 +34,7 @@ import wandb
 # config
 from nanoVLM.models import config
 # utils
-from nanoVLM.utils import (
+from nanoVLM.utils_vlm import (
     is_master, is_dist, 
     init_dist, destory_dist,
     seed_torch, seed_worker,
