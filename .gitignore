@@ -209,8 +209,8 @@ __marimo__/
 
 # custom
 .DS_Store
-dataset/
+.vscode/
+datasets/
+downloaded_models/
 logs/
 utils/
-.vscode/
-downloaded_models/

@@ -194,6 +194,8 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf")
 def main():
     print(torch.initial_seed())
     print(torch.initial_seed() % 2**32)
+    print(is_master())
+    print(is_dist())
 
 if __name__ == "__main__":
     main()

@@ -11,7 +11,10 @@
 # * Requirement : 相关模块版本需求(例如: numpy >= 2.1.0)
 # ***************************************************
 
-__all__ = []
+__all__ = [
+    "VLMConfig",
+    "TrainConfig"
+]
 
 # python libraries
 import sys
@@ -72,7 +75,7 @@ class VLMConfig:
     mp_pixel_shuffle_factor: int = 4
     mp_image_token_length: int = 64
     # ------------------------------
-    # 
+    # image config
     # ------------------------------
     max_img_size: int = 1024
     # ------------------------------
@@ -96,9 +99,10 @@ class VLMConfig:
         "r4c2": "<row_4_col_2>", 
         "r4c3": "<row_4_col_3>", 
         "r4c4": "<row_4_col_4>"
-    }) 
+    })
     vlm_load_backbone_weights: bool = True
-    vlm_checkpoint_path: str = './nanoVLM/checkpoints'
+    vlm_checkpoint_path: str = './saved_results/checkpoints/'
+    model_cache_dir: str = "./downloaded_models/"
     # ------------------------------
     # model save
     # ------------------------------
@@ -107,27 +111,29 @@ class VLMConfig:
 
 @dataclass
 class TrainConfig:
-    # learning rate
-    lr_mp: float = 0.00512
-    lr_backbones: float = 5e-5
-    # data config
-    data_cutoff_idx: int = None
-    val_ratio: float = 0.025
-    batch_size: int = 8
-    gradient_accumulation_steps: int = 8
-    max_grad_norm: float = 1.0
-    eval_in_epochs: bool = True
-    eval_interval: int = gradient_accumulation_steps * 100
-    stats_log_interval: int = gradient_accumulation_steps * 25
+    # data config 
+    train_dataset_path: str = 'HuggingFaceM4/the_cauldron'
+    train_dataset_name: tuple[str, ...] = ("tqa", "vsr")  #TODO ("all", )
+    train_dataset_cache_dir = "./datasets/"
+    data_cutoff_idx: int = 1024  #TODO None
+    val_ratio: float = 0.2  #TODO 0.025
+    batch_size: int = 12  #TODO 8
+    # model config
+    compile: bool = False
+    resume_from_vlm_checkpoint: bool = False # Indicate if the training should be resumed from a checkpoint of the whole VLM or you want to start from scratch
+    # model training
+    train_epochs: int = 5
     max_training_steps: int = 5000
     max_images_per_example: int = 4
     max_images_per_knapsack: int = 18
-    max_sample_length: int = 1024
-    compile: bool = False
-    resume_from_vlm_checkpoint: bool = False # Indicate if the training should be resumed from a checkpoint of the whole VLM or you want to start from scratch
-    # train dataset
-    train_dataset_path: str = 'HuggingFaceM4/the_cauldron'
-    train_dataset_name: tuple[str, ...] = ("all", )
+    max_sample_length: int = 1024 
+    eval_in_epochs: bool = True
+    gradient_accumulation_steps: int = 8
+    max_grad_norm: float = 1.0
+    eval_interval: int = gradient_accumulation_steps * 100
+    stats_log_interval: int = gradient_accumulation_steps * 25 
+    lr_mp: float = 1e-3  #TODO 0.00512
+    lr_backbones: float = 5e-5
     # wandb config
     log_wandb: bool = True
     wandb_entity: str = "HuggingFace" # Indicate the entity to log to in wandb
@@ -136,6 +142,8 @@ class TrainConfig:
     lmms_eval_tasks: str = 'mmstar,mmmu,ocrbench,textvqa' # Pass additional task as one string, seperated by commas without spaces (e.g. 'mmstar,mmmu,ocrbench')
     lmms_eval_limit: int = 2000
     lmms_eval_batch_size: int = 128
+    # cpu process config
+    num_workers = 0
 
 
 

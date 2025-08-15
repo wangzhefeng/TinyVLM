@@ -14,7 +14,6 @@
 __all__ = []
 
 # python libraries
-import os
 import sys
 from pathlib import Path
 ROOT = str(Path.cwd())
@@ -39,8 +38,6 @@ from nanoVLM.models.vision_language_model import VisionLanguageModel
 
 # global variable
 LOGGING_LABEL = Path(__file__).name[:-3]
-os.environ['LOG_NAME'] = LOGGING_LABEL
-from utils.log_util import logger
 
 
 def parse_args():
@@ -67,6 +64,8 @@ def parse_args():
 
 # 测试代码 main 函数
 def main():
+    from utils.log_util import logger
+
     # args
     args = parse_args()
     logger.info(f"args: {args}")

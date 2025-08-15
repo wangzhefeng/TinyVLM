@@ -36,7 +36,9 @@ from nanoVLM.data_provider.processors import (
     get_tokenizer,
 )
 from nanoVLM.utils_vlm import (
-    is_master, is_dist, get_world_size, get_rank, seed_worker
+    seed_worker,
+    is_master, is_dist, 
+    get_world_size, get_rank,
 )
 from nanoVLM.data_provider.collators import VQACollator
 from nanoVLM.data_provider.dataset import VQADataset
@@ -48,38 +50,66 @@ LOGGING_LABEL = Path(__file__).name[:-3]
 
 
 def get_dataloaders(train_cfg, vlm_cfg):
-    # Create datasets
-    image_processor = get_image_processor(max_img_size=vlm_cfg.max_img_size, splitted_image_size=vlm_cfg.vit_img_size)
+    # ------------------------------
+    # image processor
+    # ------------------------------
+    image_processor = get_image_processor(
+        max_img_size=vlm_cfg.max_img_size, 
+        splitted_image_size=vlm_cfg.vit_img_size,
+    )
+    # ------------------------------
     # tokenizer
-    tokenizer = get_tokenizer(name=vlm_cfg.lm_tokenizer, extra_special_tokens=vlm_cfg.vlm_extra_tokens, chat_template=vlm_cfg.lm_chat_template)
-    
+    # ------------------------------
+    tokenizer = get_tokenizer(
+        name=vlm_cfg.lm_tokenizer, 
+        extra_special_tokens=vlm_cfg.vlm_extra_tokens, 
+        chat_template=vlm_cfg.lm_chat_template,
+        cache_dir=vlm_cfg.model_cache_dir,
+    )
+    logger.info(f"tokenizer: \n{tokenizer}")
+    # ------------------------------
     # Load and combine all training datasets
+    # ------------------------------
     combined_train_data = []
-    # data config
-    dataset_names_to_load = train_cfg.train_dataset_name  # ("all",)
-    if "all" in dataset_names_to_load:
+    # dataset name
+    if "all" in train_cfg.train_dataset_name:
         dataset_names_to_load = get_dataset_config_names(train_cfg.train_dataset_path)
-    # data load
+    else:
+        dataset_names_to_load = train_cfg.train_dataset_name
+    # logger.info(f"debug::dataset_names_to_load: {dataset_names_to_load}")
+    # dataset load
     for dataset_name in dataset_names_to_load:
         try:
-            train_ds = load_dataset(path=train_cfg.train_dataset_path, name=dataset_name)
+            train_ds = load_dataset(
+                path=train_cfg.train_dataset_path, 
+                name=dataset_name, 
+                cache_dir=train_cfg.train_dataset_cache_dir
+            )
             train_ds["train"][0]  # Check if the dataset is loaded correctly
             combined_train_data.append(train_ds["train"])
         except Exception as e:
             if is_master():
                 logger.info(f"Warning: Failed to load dataset config '{dataset_name}' from '{train_cfg.train_dataset_path}'. Error: {e}")
             continue
-    # data combine
+    # logger.info(f"debug::combined_train_data: \n{combined_train_data[0]}")
+    # ------------------------------
+    # train dataset
+    # ------------------------------
     if not combined_train_data:
         raise ValueError("No valid datasets were loaded. Please check your dataset path and configurations.")
-    
     train_ds = concatenate_datasets(combined_train_data)
+
     # Shuffle the training dataset, so train and valid get equal contributions from all concatenated datasets
     train_ds = train_ds.shuffle(seed=0)
+    
     # Shard the dataset in DDP since we are using an iterable dataset instead of the distributed sampler
     if is_dist():
         train_ds = train_ds.shard(num_shards=get_world_size(), index=get_rank())
     
+    # logger.info(f"debug::train_ds: \n{train_ds}")
+    # ------------------------------
+    # train dataset split
+    # ------------------------------
     # Apply cutoff if specified
     if train_cfg.data_cutoff_idx is None:
         total_samples = len(train_ds)  # use the entire dataset
@@ -87,8 +117,11 @@ def get_dataloaders(train_cfg, vlm_cfg):
         total_samples = min(len(train_ds), train_cfg.data_cutoff_idx)
     val_size = int(total_samples * train_cfg.val_ratio)
     train_size = total_samples - val_size
-    
+    logger.info(f"train_size: {train_size}")
+    logger.info(f"val_size: {val_size}")
+    # ------------------------------
     # Create Dataset
+    # ------------------------------
     train_dataset = VQADataset(
         train_ds.select(range(0, train_size)),
         tokenizer,
@@ -118,13 +151,14 @@ def get_dataloaders(train_cfg, vlm_cfg):
     # 设置生成随机数的种子
     g = torch.Generator()
     g.manual_seed(0)
-    
+    # ------------------------------
     # Create dataloaders
+    # ------------------------------
     train_loader = DataLoader(
         train_dataset,
         batch_size=train_cfg.batch_size,  # =per device BS in DDP
         collate_fn=vqa_collator,
-        num_workers=8,
+        num_workers=train_cfg.num_workers,
         pin_memory=True,
         drop_last=True,
         worker_init_fn=seed_worker,
@@ -142,7 +176,7 @@ def get_dataloaders(train_cfg, vlm_cfg):
         batch_size=train_cfg.batch_size,
         sampler=val_sampler,
         collate_fn=vqa_collator,
-        num_workers=8,
+        num_workers=train_cfg.num_workers,
         pin_memory=True,
         drop_last=True,
         worker_init_fn=seed_worker,
@@ -158,6 +192,17 @@ def get_dataloaders(train_cfg, vlm_cfg):
 # 测试代码 main 函数
 def main():
     from utils.log_util import logger
+    from nanoVLM.models.config import VLMConfig, TrainConfig
+    
+    # config
+    train_cfg = TrainConfig()
+    vlm_cfg = VLMConfig()
+    
+    # dataloader
+    train_loader, val_loader = get_dataloaders(train_cfg, vlm_cfg)
+    for batch in train_loader:
+        logger.info(f"debug::batch: \n{batch}")
+        break
 
 if __name__ == "__main__":
     main()
